@@ -5,15 +5,10 @@ author: "Brian Waismeyer"
 date  : "Thursday, April 23, 2015"
 output: 
     html_document:
-        keep_md: yes
+        keep_md  : yes
+        theme    : journal
+        highlight: zenburn
 ---
-
-**NOTES**
-- can have sections beyond those included below
-- no more than 10 sentences in the synopsis
-- need to have at least one figure with a plot
-- no more than three figures total
-- show ALL code
 
 ## Synopsis
 This is an exploratory analysis of an open database provided by the the U.S. 
@@ -27,7 +22,8 @@ key estimates of how these storms impacted the human environment. More
 information about the database can be found 
 [here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
 
-The analysis aimed to address two proposed questions:
+The analysis aimed to address two proposed questions.
+
 1. What types of storm events are most harmful to US population health?
 2. What types of events have the most impact on US economy?
 
@@ -35,6 +31,8 @@ The analysis aimed to address two proposed questions:
 
 ## Loading Supporting Resources
 ```{r}
+library(stringr)    # for cleaning EVTYPE character strings
+library(dplyr)      # for dataset reformatting
 library(ggplot2)    # for making our data visualizations
 ```
 
@@ -63,13 +61,141 @@ if(file.exists("./NOAA_database.csv")) {
     rm(download_url)
 }
 
-# read the data into R
-storms <- read.csv("./NOAA_database.csv")
+# read the data into R (note that I prefer not to assume characters = factors)
+storms <- read.csv("./NOAA_database.csv", 
+                   stringsAsFactors = FALSE)
 
 # clean up the download file
 unlink("./NOAA_database.csv")
 ```
 ### Reviewing the Data
+We take a quick look at the data structure, both to understand it and to insure
+it loaded correctly.
+
+```{r}
+str(storms)
+head(storms)
+```
+
+### Tidying the Data
+Our main interest is going to be the event type variable (```EVTYPE```) and
+how it relates to public health and economic variables. So, we start by making
+it a proper factor. This ends up requiring a few steps due to inconsistent
+formatting.
+```{r}
+# first we inspect the unique character strings in the EVTYPE variable
+head(unique(storms$EVTYPE))
+length(unique(storms$EVTYPE))
+```
+We discover several cases where there are either leading/trailing whitespace
+(e.g., ```"   HIGH SURF ADVISORY"```) or where there are multiple versions of the
+same string but with different capitalization (e.g., ```"Thunderstorm"```, 
+```"THUNDERSTORM"```).
+
+The NOAA documentation provides no reason to believe differences in 
+capitalization or whitespace are meaningful, so we clean these up.
+
+```{r}
+# removing leading/trailing whitespace
+storms$EVTYPE <- str_trim(storms$EVTYPE)
+
+# make capitalization conistent (all lowercase)
+storms$EVTYPE <- tolower(storms$EVTYPE)
+
+# check unique strings
+ev_length <- length(unique(storms$EVTYPE))
+ev_length
+```
+The NOAA documentation lists 48 unique event types. We have `r ev_length`.
+
+To figure out what is going on, we can inspect how often specific codes are
+actually used in the data.
+
+```{r}
+# make a table of how often all event codes were used, sorted most to least
+code_freq_table <- sort(table(storms$EVTYPE), decreasing = TRUE)
+head(code_freq_table)
+
+# what proportion of codes are used more than once?
+more_than_one <- sum(code_freq_table > 1)/length(code_freq_table)
+more_than_one
+
+# more than 5 times?
+more_than_five <- sum(code_freq_table > 5)/length(code_freq_table)
+more_than_five
+```
+
+It looks like only a small proportion of the codes were used very often. A 
+proper cleaning would require digging through the list and identifying 
+mispellings, alternate arrangements, etc. 
+
+For the purposes of this analysis, we will proceed with the current data unless
+it becomes apparent that our results are being notably impacted by coding
+inconsistency. This saves us work (at least for now) and allows for the 
+possibility that there were types of storm events observed that were not
+anticipated by NOAA documentation requirements.
 
 ## Results
+This section will present analyses attemping to address our two key questions.
+
+### What types of storm events are most harmful to US population health?
+
+For this analysis, we restricted "public health" to measurements of immediate
+harm to persons. So, for example, fatality and injury data were considered
+variables of interest but crop and property damage (which could have longer
+term consequences for public health) were not.
+
+We address the question first by simply exploring frequencies of fatalities
+(```FATALITIES```) and injuries (```INJURIES```) overall.
+
+```{r}
+# we start off with some simple summary statistics: ignoring event type, what
+# are typical fatality rates per weather event?
+summary(storms$FATALITIES)
+sd(storms$FATALITIES)
+
+# injury rates?
+summary(storms$INJURIES)
+sd(storms$INJURIES)
+```
+Given that most storms appear to have 0 injuries or fatalities, we take a 
+simple approach to grouping our events to get a clear take on how often
+fatalities and injuries occur at all
+
+```{r}
+# first we add two new factors to our dataset to group our events by number
+# of fatalities or injuries
+storms$FAT_FACTOR <- sapply(storms$FATALITIES, function(x) 
+    if(x == 0) {
+      return("None")
+    } else if (x > 5) {
+        return("Five or More")
+    } else {
+        return("One to Five")
+    }
+)
+
+storms$INJ_FACTOR <- sapply(storms$INJURIES, function(x) 
+    if(x == 0) {
+      return("None")
+    } else if (x > 5) {
+        return("Five or More")
+    } else {
+        return("One to Five")
+    }
+)
+
+# now we turn these into proper, ordered factors
+storms$FAT_FACTOR <- factor(storms$FAT_FACTOR, 
+                            levels = c("None", "One to Five", "Five or More"),
+                            labels = c("None", "One to Five", "Five or More")
+                            )
+
+storms$INJ_FACTOR <- factor(storms$INJ_FACTOR, 
+                            levels = c("None", "One to Five", "Five or More"),
+                            labels = c("None", "One to Five", "Five or More")
+                            )
+```
+
+### What types of events have the most impact on US economy?
 
